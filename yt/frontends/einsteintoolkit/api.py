@@ -13,3 +13,5 @@ from .fields import \
     EinsteinToolkitFieldInfo
 from .io import \
     EinsteinToolkitIOHandler
+from .simulation_handling import \
+    EinsteinToolkitSimulation
