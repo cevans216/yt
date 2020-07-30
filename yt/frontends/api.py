@@ -17,6 +17,7 @@ _frontends = [
     "boxlib",
     "chombo",
     "eagle",
+    "einsteintoolkit",
     "enzo_p",
     "enzo",
     "exodus_ii",
