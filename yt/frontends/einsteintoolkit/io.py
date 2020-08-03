@@ -17,7 +17,7 @@ class EinsteinToolkitIOHandler(BaseIOHandler):
     def _read_fluid_selection(self, chunks, selector, fields, size):
         data  = { field: np.empty(size, dtype=self.ds.index.float_type) for field in fields }
         files = [self.ds.h5handler.field_map[f[-1]] for f in fields if f[0] == self._dataset_type]
-        list(map(lambda f:f.ensure_open(), files))
+        list(map(lambda f:f.open(), files))
 
         offset = 0
         for chunk in chunks:

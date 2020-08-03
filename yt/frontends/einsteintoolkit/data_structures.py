@@ -55,10 +55,6 @@ class EinsteinToolkitGrid2D(EinsteinToolkitGrid):
         super(EinsteinToolkitGrid2D, self)._setup_dx()
         self.ds.dimensionality = 2
 
-        if self.index.ds.slice_plane is not None and self.Parent is not None:
-            normal_index = self.index.ds.slice_plane.normal_index
-            self.dds[normal_index] = self.Parent.dds[normal_index]
-
 class EinsteinToolkitHierarchy(GridIndex):
     def __init__(self, ds, dataset_type='EinsteinToolkit'):
         self.dataset_type   = dataset_type
@@ -139,18 +135,15 @@ class EinsteinToolkitDataset(Dataset):
         self.filename = filename
         self.code_mass_solar = code_mass_solar
 
-        self.h5handler = CarpetIOHDF5Handler(self.filename, file_pattern, slice_plane)
-        self.iteration = self.iterations[0] if iteration is None else iteration
+        self.h5handler   = CarpetIOHDF5Handler(self.filename, file_pattern, slice_plane)
+        self.slice_plane = self.h5handler.slice_plane
+        self.iteration   = self.iterations[0] if iteration is None else iteration
 
         super(EinsteinToolkitDataset, self).__init__(filename, dataset_type='EinsteinToolkit')
 
     @property
     def iterations(self):
         return self.h5handler.iterations
-    
-    @property
-    def slice_plane(self):
-        return self.h5handler.slice_plane
 
     def _set_code_unit_attributes(self):
         setdefaultattr(self, 'length_unit', self.quan(self.code_mass_solar, 'l_geom'))
@@ -163,7 +156,7 @@ class EinsteinToolkitDataset(Dataset):
     def _parse_parameter_file(self):
         self.cosmological_simulation = False
         self.unique_identifier = f'{self.parameter_filename}-{time.ctime()}'
-        self.refine_by = self.h5handler.refinement_factor
+        self.refine_by = self.h5handler.parameters.get('carpet::refinement_factor', default=2)
         self.dimensionality = self.h5handler.dimensionality
         self.periodicity = 3*(False,)
 
