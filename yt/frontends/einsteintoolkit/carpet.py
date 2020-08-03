@@ -24,7 +24,7 @@ class CarpetGrid:
             self.grid_patches[reflevel] = list(set(self.grid_patches[reflevel]))
 
             # Remove any grid patches that are completely contained within another
-            filter_func = lambda p: not any([p is not o and o.contains_patch(p) for o in self.grid_patches[reflevel]])
+            filter_func = lambda p: not any([p is not o and o.contains(p) for o in self.grid_patches[reflevel]])
             self.grid_patches[reflevel] = list(filter(filter_func, self.grid_patches[reflevel]))
 
         # Determine domain geometry
@@ -35,15 +35,11 @@ class CarpetGrid:
 
         self.time = self.grid_patches[0][0].hdf5_patch.time
 
+        # Flatten
+        self.grid_patches = sum([patches for patches in self.grid_patches.values()], start=list())
+        self.num_patches  = len(self.grid_patches)
+
         h5handler.close_active_file()
-
-    @property
-    def all_patches(self):
-        return sum([patches for patches in self.grid_patches.values()], start=list())
-
-    @property
-    def num_patches(self):
-        return sum([len(rl) for rl in self.grid_patches.values()])
 
 class GridPatch:
     def __init__(self, h5handler, dataset_name):
@@ -64,12 +60,7 @@ class GridPatch:
         self.iorigin = self.hdf5_patch.iorigin + self.ngz_lower
         self.vshape  = self.hdf5_patch.shape - (self.ngz_lower + self.ngz_upper)
 
-        #####################################################################
-        # I have no earthly idea why this works, but this block             #
-        # ensures that the individual processor patches fit together        #
-        # with no gaps or overlapping regions.                              #
-        #####################################################################
-
+        # Ensure that the edge of this patch falls on a cell edge of parent grids
         for axi in range(self.dim):
             if self.iorigin[axi] % 2 > 0:
                 assert self.ngz_lower[axi] > 0
@@ -102,7 +93,6 @@ class GridPatch:
 
         # Remove ghost zones and do linear interpolation to dual grid (cell centered)
         data = vdata[self.read_slice]
-        #for sll, slr in zip(InterpolationHandler.interp_left(self.dim), InterpolationHandler.interp_right(self.dim)):
         for sll, slr in InterpolationHandler.interp_slices(self.dim):
             data = 0.5*(data[sll] + data[slr])
         
@@ -119,28 +109,8 @@ class GridPatch:
     def __eq__(self, other):
         return (self.hash_key == other.hash_key)
 
-    # Determines if patch other is contained within this patch
-    def contains_patch(self, other):
+    def contains(self, other):
         return not (np.any(other.iorigin < self.iorigin) or \
                     np.any(other.iorigin > self.upper_index) or \
                     np.any(other.upper_index < self.iorigin) or \
                     np.any(other.upper_index > self.upper_index))
-
-    # Determines if there is a non-zero intersection with another patch
-    def intersects(self, other):
-        print('called intersects')
-        return not (np.any(self.iorigin >= other.upper_index) or \
-                    np.any(other.iorigin >= self.upper_index))
-    
-    # Calculates volume of the intersection region with another patch
-    # or the sum of volumes if other is an iterable of patches
-    def intersection_volume(self, other):
-        if isinstance(other, (list, tuple)):
-            return sum(map(self.intersection_volume, other))
-        
-        assert isinstance(other, GridPatch)
-        dx = np.minimum(self.right_edge, other.right_edge) \
-             - np.maximum(self.left_edge, other.left_edge)
-        if np.any(dx <= 0) or np.any(np.isclose(dx, 0)):
-            return 0
-        return np.prod(dx)

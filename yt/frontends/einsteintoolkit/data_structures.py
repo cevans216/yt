@@ -76,7 +76,7 @@ class EinsteinToolkitHierarchy(GridIndex):
         self.grids = np.empty(self.num_grids, dtype=object)
 
     def _parse_index(self):
-        for ind, grid_patch in enumerate(self.ds.carpet_grid.all_patches):
+        for ind, grid_patch in enumerate(self.ds.carpet_grid.grid_patches):
             self._set_grid_arrays(ind, grid_patch)
         
         self.grid_left_edge  = self.ds.arr(self.grid_left_edge , self.ds.length_unit)
