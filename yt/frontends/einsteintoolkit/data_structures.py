@@ -63,11 +63,7 @@ class EinsteinToolkitGrid2D(EinsteinToolkitGrid):
 class EinsteinToolkitHierarchy(GridIndex):
     def __init__(self, ds, dataset_type='EinsteinToolkit'):
         self.dataset_type   = dataset_type
-        self.dataset        = weakref.proxy(ds)
-        self.index_filename = self.dataset.parameter_filename
-        self.directory      = os.path.dirname(self.index_filename)
-        self.float_type     = np.float64
-        self.int_type       = np.int32
+        self.index_filename = ds.parameter_filename
         super(EinsteinToolkitHierarchy, self).__init__(ds, dataset_type)
 
     def _detect_output_fields(self):
@@ -75,22 +71,18 @@ class EinsteinToolkitHierarchy(GridIndex):
 
     def _count_grids(self):
         self.num_grids = self.ds.carpet_grid.num_patches
+    
+    def _initialize_grid_arrays(self):
+        super(EinsteinToolkitHierarchy, self)._initialize_grid_arrays()
+        self.grids = np.empty(self.num_grids, dtype=object)
 
     def _parse_index(self):
-        self.grid_left_edge      = np.empty((self.num_grids,3), dtype=self.float_type)
-        self.grid_right_edge     = np.empty((self.num_grids,3), dtype=self.float_type)
-        self.grid_dimensions     = np.empty((self.num_grids,3), dtype=self.int_type)
-        self.grid_particle_count = np.empty((self.num_grids,1), dtype=self.int_type)
-        self.grid_levels         = np.empty((self.num_grids,1), dtype=self.int_type)
-        self.grids               = np.empty(self.num_grids    , dtype=object)
-
         for ind, grid_patch in enumerate(self.ds.carpet_grid.all_patches):
             self._set_grid_arrays(ind, grid_patch)
         
-        self.max_level = np.amax(self.grid_levels)
-
         self.grid_left_edge  = self.ds.arr(self.grid_left_edge , self.ds.length_unit)
         self.grid_right_edge = self.ds.arr(self.grid_right_edge, self.ds.length_unit)
+        self.max_level = np.amax(self.grid_levels)
 
     def _set_grid_arrays(self, ind, grid_patch):
         self.grid_left_edge     [ind,:] = grid_patch.left_edge
@@ -101,34 +93,29 @@ class EinsteinToolkitHierarchy(GridIndex):
         self.grids              [ind  ] = EinsteinToolkitGrid(ind, self, grid_patch)
 
     def _populate_grid_objects(self):
-        for g in self.grids:
-            g._prepare_grid()
-            g._setup_dx()
-        self.reconstruct_children()
-    
-    def grid_cells_overlap(self, gid, oid):
+        # First pass: setup each individual grid
+        for grid in self.grids:
+            grid._prepare_grid()
+            grid._setup_dx()
+
+        # Second pass: reconstruct parent/child/sibling relationships
+        for index, grid in enumerate(self.grids):
+            for child_id in self._get_box_grids(index, grid.Level+1):
+                grid.Children.append(self.grids[child_id])
+                self.grids[child_id].parents.append(grid)
+            for sibling_id in self._get_box_grids(index, grid.Level, min_index=index+1):
+                grid.OverlappingSiblings.append(self.grids[sibling_id])
+
+    def _grid_cells_overlap(self, gid, oid):
         return (  np.minimum(self.grid_right_edge[oid].d, self.grid_right_edge[gid].d) \
                 - np.maximum(self.grid_left_edge[oid].d, self.grid_left_edge[gid].d)).prod()/self.grids[oid].dds.d.prod()
     
-    def reconstruct_children(self):
+    def _get_box_grids(self, index, level, min_index=0):
         mask = np.empty(self.num_grids, dtype=np.int32)
-        for index, grid in enumerate(self.grids):
-            get_box_grids_level(self.grid_left_edge[index,:], self.grid_right_edge[index,:],
-                                self.grid_levels[index]+1, 
-                                self.grid_left_edge, self.grid_right_edge, self.grid_levels, mask)
-
-            for child_id in np.where(mask.astype(bool))[0]:
-                if self.grid_cells_overlap(index, child_id) > 1:
-                    grid.Children.append(self.grids[child_id])
-                    self.grids[child_id].parents.append(grid)
-            
-            get_box_grids_level(self.grid_left_edge[index,:], self.grid_right_edge[index,:],
-                                self.grid_levels[index], 
-                                self.grid_left_edge, self.grid_right_edge, self.grid_levels, mask)
-
-            for sibling_id in np.where(mask.astype(bool))[0]:
-                if sibling_id > index and self.grid_cells_overlap(index, sibling_id) > 1:
-                    grid.OverlappingSiblings.append(self.grids[sibling_id])
+        get_box_grids_level(self.grid_left_edge[index,:], self.grid_right_edge[index,:], level, 
+                            self.grid_left_edge, self.grid_right_edge, self.grid_levels, mask, 
+                            min_index=min_index)
+        return [gid for gid in np.where(mask)[0] if self._grid_cells_overlap(index, gid) > 1]
 
 class EinsteinToolkitHierarchy2D(EinsteinToolkitHierarchy):
     def _set_grid_arrays(self, ind, grid_patch):
