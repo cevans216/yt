@@ -12,12 +12,10 @@ from .io import HDF5GridPatch
 from .interpolation import InterpolationHandler
 
 class CarpetGrid:
-    def __init__(self, ds):
-        ds.h5file.open()
-
+    def __init__(self, h5handler, iteration):
         # Get GridPatch objects for each dataset and separate by refinement level
         self.grid_patches = defaultdict(list)
-        for patch in map(lambda dset: GridPatch(ds, dset), ds.h5file.get_datasets(ds.iteration)):
+        for patch in map(lambda dset: GridPatch(h5handler, dset), h5handler.get_datasets(iteration)):
             self.grid_patches[patch.reflevel].append(patch)
 
         # Preprocess grid patches to remove redundancy. Typically only relevant for slice data.
@@ -37,7 +35,7 @@ class CarpetGrid:
 
         self.time = self.grid_patches[0][0].hdf5_patch.time
 
-        ds.h5file.close()
+        h5handler.close_active_file()
 
     @property
     def all_patches(self):
@@ -48,9 +46,9 @@ class CarpetGrid:
         return sum([len(rl) for rl in self.grid_patches.values()])
 
 class GridPatch:
-    def __init__(self, ds, dataset_name):
-        self.ds         = weakref.proxy(ds)
-        self.hdf5_patch = HDF5GridPatch(ds.h5file, dataset_name)
+    def __init__(self, h5handler, dataset_name):
+        self.h5handler  = h5handler
+        self.hdf5_patch = HDF5GridPatch(h5handler.active_file, dataset_name)
 
         self.reflevel  = self.hdf5_patch.level
         self.component = int(self.hdf5_patch.suffix.split('=')[-1])
@@ -100,7 +98,7 @@ class GridPatch:
             field_name = field_name[-1]
         
         # Read raw vertex-centered data from disk
-        vdata = self.hdf5_patch.read_field(field_name, self.ds.field_map[field_name])
+        vdata = self.hdf5_patch.read_field(field_name, self.h5handler.field_map[field_name])
 
         # Remove ghost zones and do linear interpolation to dual grid (cell centered)
         data = vdata[self.read_slice]
@@ -110,12 +108,9 @@ class GridPatch:
         
         # If this is 2D data, reshape the result accordingly
         if self.dim == 2:
-            data = self.ds.slice_plane.reshape(data)
+            data = self.h5handler.slice_plane.reshape(data)
         
         return data
-
-    def __repr__(self):
-        return f'GridPatch: {self.hdf5_patch.suffix}'
 
     def __hash__(self):
         return hash(self.hash_key)
@@ -133,6 +128,7 @@ class GridPatch:
 
     # Determines if there is a non-zero intersection with another patch
     def intersects(self, other):
+        print('called intersects')
         return not (np.any(self.iorigin >= other.upper_index) or \
                     np.any(other.iorigin >= self.upper_index))
     

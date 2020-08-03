@@ -20,7 +20,7 @@ from yt.funcs import mylog as log_handler
 
 from .carpet import CarpetGrid, GridPatch
 from .fields import EinsteinToolkitFieldInfo
-from .carpetiohdf5 import CarpetIOHDF5File, SlicePlane
+from .carpetiohdf5 import CarpetIOHDF5Handler
 
 class EinsteinToolkitGrid(AMRGridPatch):
     _id_offset = 0
@@ -66,7 +66,7 @@ class EinsteinToolkitHierarchy(GridIndex):
         super(EinsteinToolkitHierarchy, self).__init__(ds, dataset_type)
 
     def _detect_output_fields(self):
-        self.field_list = [(self.dataset_type, fname) for fname in self.ds.field_map]
+        self.field_list = [(self.dataset_type, fname) for fname in self.ds.h5handler.field_map]
 
     def _count_grids(self):
         self.num_grids = self.ds.carpet_grid.num_patches
@@ -131,7 +131,7 @@ class EinsteinToolkitDataset(Dataset):
 
     @classmethod
     def _is_valid(self, *args, **kwargs):
-        return CarpetIOHDF5File.is_valid(args[0], **kwargs)
+        return CarpetIOHDF5Handler.is_valid(args[0], **kwargs)
 
     def __init__(self, filename, file_pattern=None, slice_plane=None,
                  iteration=None, code_mass_solar=1):
@@ -139,19 +139,18 @@ class EinsteinToolkitDataset(Dataset):
         self.filename = filename
         self.code_mass_solar = code_mass_solar
 
-        self._h5files = CarpetIOHDF5File.from_pattern(self.filename, file_pattern)
-        self.slice_plane = SlicePlane.determine_slice_plane(slice_plane, self.h5file)
+        self.h5handler = CarpetIOHDF5Handler(self.filename, file_pattern, slice_plane)
         self.iteration = self.iterations[0] if iteration is None else iteration
 
         super(EinsteinToolkitDataset, self).__init__(filename, dataset_type='EinsteinToolkit')
-    
-    @property
-    def h5file(self):
-        return self._h5files[0]
 
     @property
     def iterations(self):
-        return self.h5file.iterations
+        return self.h5handler.iterations
+    
+    @property
+    def slice_plane(self):
+        return self.h5handler.slice_plane
 
     def _set_code_unit_attributes(self):
         setdefaultattr(self, 'length_unit', self.quan(self.code_mass_solar, 'l_geom'))
@@ -161,24 +160,14 @@ class EinsteinToolkitDataset(Dataset):
         setdefaultattr(self, 'velocity_unit', self.quan(1, 'c'))
         setdefaultattr(self, 'magnetic_unit', self.quan((8.35e15)/self.code_mass_solar, 'T'))
     
-    def _build_field_map(self):
-        self.field_map = dict()
-        for h5f in self._h5files:
-            if not all([f not in self.field_map for f in h5f.fields]):
-                log_handler.error('Data for each field must be in only one file')
-                raise NotImplementedError('Data for each field must be in only one file')
-            self.field_map.update({ f: h5f for f in h5f.fields})
-
     def _parse_parameter_file(self):
         self.cosmological_simulation = False
         self.unique_identifier = f'{self.parameter_filename}-{time.ctime()}'
-        self.refine_by = self.h5file.refinement_factor
-        self.dimensionality = self.h5file.dimensionality
+        self.refine_by = self.h5handler.refinement_factor
+        self.dimensionality = self.h5handler.dimensionality
         self.periodicity = 3*(False,)
 
-        self._build_field_map()
-
-        self.carpet_grid = CarpetGrid(self)
+        self.carpet_grid = CarpetGrid(self.h5handler, self.iteration)
         self.domain_left_edge  = self.carpet_grid.left_edge
         self.domain_right_edge = self.carpet_grid.right_edge
         self.domain_dimensions = self.carpet_grid.dimensions
