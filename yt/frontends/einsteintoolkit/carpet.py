@@ -13,7 +13,7 @@ from .interpolation import InterpolationHandler
 
 class CarpetGrid:
     def __init__(self, ds):
-        self.ds = weakref.proxy(ds)
+        ds.h5file.open()
 
         # Get GridPatch objects for each dataset and separate by refinement level
         self.grid_patches = defaultdict(list)
@@ -30,15 +30,15 @@ class CarpetGrid:
             self.grid_patches[reflevel] = list(filter(filter_func, self.grid_patches[reflevel]))
 
         # Determine domain geometry
-        self.coarse_delta      = self.grid_patches[0][0].delta
-        self.domain_left_edge  = np.amin(np.stack([patch.left_edge  for patch in self.grid_patches[0]], axis=0), axis=0)
-        self.domain_right_edge = np.amax(np.stack([patch.right_edge for patch in self.grid_patches[0]], axis=0), axis=0)
-        self.domain_dimensions = np.rint((self.domain_right_edge - self.domain_left_edge)/self.coarse_delta).astype(int)
+        self.coarse_delta = self.grid_patches[0][0].delta
+        self.left_edge    = np.amin(np.stack([patch.left_edge  for patch in self.grid_patches[0]], axis=0), axis=0)
+        self.right_edge   = np.amax(np.stack([patch.right_edge for patch in self.grid_patches[0]], axis=0), axis=0)
+        self.dimensions   = np.rint((self.right_edge - self.left_edge)/self.coarse_delta).astype(int)
 
-    @property
-    def time(self):
-        return self.grid_patches[0][0].hdf5_patch.time  
-    
+        self.time = self.grid_patches[0][0].hdf5_patch.time
+
+        ds.h5file.close()
+
     @property
     def all_patches(self):
         return sum([patches for patches in self.grid_patches.values()], start=list())

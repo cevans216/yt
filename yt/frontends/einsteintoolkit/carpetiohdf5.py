@@ -8,6 +8,7 @@ Interface for CarpetIOHDF5 files for yt.frontends.einsteintoolkit
 import os
 import glob
 import enum
+import re
 import numpy as np
 
 from collections import defaultdict
@@ -49,6 +50,14 @@ class CarpetIOHDF5File:
     @lazy_property
     def index(self):
         return self.build_index()
+    
+    @property
+    def refinement_factor(self):
+        try:
+            return int(re.search('Carpet::refinement_factor[\s*]=[\s*](\d+)', 
+                                 self.all_parameters, re.IGNORECASE).groups()[0])
+        except:
+            return 2
 
     def get_datasets(self, iteration, level=None):
         if level is None:

@@ -21,7 +21,6 @@ from yt.funcs import mylog as log_handler
 from .carpet import CarpetGrid, GridPatch
 from .fields import EinsteinToolkitFieldInfo
 from .carpetiohdf5 import CarpetIOHDF5File, SlicePlane
-from .util import determine_refinement_factor
 
 class EinsteinToolkitGrid(AMRGridPatch):
     _id_offset = 0
@@ -130,40 +129,29 @@ class EinsteinToolkitDataset(Dataset):
     _index_class = EinsteinToolkitHierarchy
     _field_info_class = EinsteinToolkitFieldInfo
 
-    def __init__(self, filename, dataset_type='EinsteinToolkit',
-                 iteration=None,
-                 code_mass_solar=1,
-                 slice_plane=None,
-                 file_pattern=None,
-                 verify_amr_masking=False,
-                 storage_filename=None,
-                 units_override=None):
-        self.fluid_types     += ('EinsteinToolkit',)
-        self.code_mass_solar  = code_mass_solar
-        self.filename         = filename
-        self._h5files         = CarpetIOHDF5File.from_pattern(self.filename, file_pattern)
-        self.iteration        = iteration
-        self.slice_plane      = SlicePlane.determine_slice_plane(slice_plane, self.h5file)
-        self.storage_filename = storage_filename
+    @classmethod
+    def _is_valid(self, *args, **kwargs):
+        return CarpetIOHDF5File.is_valid(args[0], **kwargs)
 
-        if self.iteration is None:
-            self.iteration = self.h5file.iterations[0]
+    def __init__(self, filename, file_pattern=None, slice_plane=None,
+                 iteration=None, code_mass_solar=1):
+        self.fluid_types += ('EinsteinToolkit',)
+        self.filename = filename
+        self.code_mass_solar = code_mass_solar
 
-        self.field_map = dict()
-        for h5f in self._h5files:
-            assert all([f not in self.field_map for f in h5f.fields])
-            self.field_map.update({ f: h5f for f in h5f.fields})
+        self._h5files = CarpetIOHDF5File.from_pattern(self.filename, file_pattern)
+        self.slice_plane = SlicePlane.determine_slice_plane(slice_plane, self.h5file)
+        self.iteration = self.iterations[0] if iteration is None else iteration
 
-        super(EinsteinToolkitDataset, self).__init__(filename, dataset_type,
-                         units_override=units_override)
+        super(EinsteinToolkitDataset, self).__init__(filename, dataset_type='EinsteinToolkit')
+    
+    @property
+    def h5file(self):
+        return self._h5files[0]
 
-        # Verify that the sum of the cell volumes is equal to the total domain volume
-        if verify_amr_masking:
-            cell_volume   = self.all_data()['cell_volume'].sum().in_units('code_length**3').v
-            domain_volume = (self.domain_right_edge - self.domain_left_edge).prod().in_units('code_length**3').v
-            if not np.isclose(cell_volume, domain_volume):
-                log_handler.error('Invalid AMR masking.')
-                raise RuntimeError('Invalid AMR masking.')
+    @property
+    def iterations(self):
+        return self.h5file.iterations
 
     def _set_code_unit_attributes(self):
         setdefaultattr(self, 'length_unit', self.quan(self.code_mass_solar, 'l_geom'))
@@ -172,51 +160,40 @@ class EinsteinToolkitDataset(Dataset):
 
         setdefaultattr(self, 'velocity_unit', self.quan(1, 'c'))
         setdefaultattr(self, 'magnetic_unit', self.quan((8.35e15)/self.code_mass_solar, 'T'))
+    
+    def _build_field_map(self):
+        self.field_map = dict()
+        for h5f in self._h5files:
+            if not all([f not in self.field_map for f in h5f.fields]):
+                log_handler.error('Data for each field must be in only one file')
+                raise NotImplementedError('Data for each field must be in only one file')
+            self.field_map.update({ f: h5f for f in h5f.fields})
 
     def _parse_parameter_file(self):
+        self.cosmological_simulation = False
         self.unique_identifier = f'{self.parameter_filename}-{time.ctime()}'
-
-        self.refine_by      = determine_refinement_factor(self.h5file.all_parameters)
+        self.refine_by = self.h5file.refinement_factor
         self.dimensionality = self.h5file.dimensionality
-        self.periodicity    = 3*(False,)
+        self.periodicity = 3*(False,)
 
-        self.h5file.open()
+        self._build_field_map()
 
         self.carpet_grid = CarpetGrid(self)
-        self.domain_left_edge  = self.carpet_grid.domain_left_edge
-        self.domain_right_edge = self.carpet_grid.domain_right_edge
-        self.domain_dimensions = self.carpet_grid.domain_dimensions
+        self.domain_left_edge  = self.carpet_grid.left_edge
+        self.domain_right_edge = self.carpet_grid.right_edge
+        self.domain_dimensions = self.carpet_grid.dimensions
         self.current_time      = self.carpet_grid.time
-
-        self.h5file.close()
 
         if self.dimensionality == 2:
             self._setup_2d()
-
-        self.cosmological_simulation = 0
-        self.current_redshift        = 0
-        self.omega_lambda            = 0
-        self.omega_matter            = 0
-        self.hubble_constant         = 0
 
     def _setup_2d(self):
         self._index_class = EinsteinToolkitHierarchy2D
 
         if self.slice_plane is None:
+            log_handler.error('Could not determine slice plane from input file.')
             raise RuntimeError('Could not determine slice plane from input file.')
 
         self.domain_left_edge  = self.slice_plane.fill(self.domain_left_edge , 0)
         self.domain_right_edge = self.slice_plane.fill(self.domain_right_edge, 1)
         self.domain_dimensions = self.slice_plane.fill(self.domain_dimensions, 1)
-
-    @classmethod
-    def _is_valid(self, *args, **kwargs):
-        return CarpetIOHDF5File.is_valid(args[0], **kwargs)
-
-    @property
-    def iterations(self):
-        return self.h5file.iterations
-
-    @property
-    def h5file(self):
-        return self._h5files[0]
