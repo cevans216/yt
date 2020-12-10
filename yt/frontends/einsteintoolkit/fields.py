@@ -50,7 +50,8 @@ class EinsteinToolkitFieldInfo(FieldInfoContainer):
         ('HYDROBASE::Avec[0]', (avec_units, ['Ax'], r'$A^x$')),
         ('HYDROBASE::Avec[1]', (avec_units, ['Ay'], r'$A^y$')),
         ('HYDROBASE::Avec[2]', (avec_units, ['Az'], r'$A^z$')),
-        ('HYDROBASE::Aphi', (avec_units, ['Aphi', 'scalar_potential'], r'$\Phi$'))
+        ('HYDROBASE::Aphi', (avec_units, ['Aphi', 'scalar_potential'], r'$\Phi$')),
+        ('WEYLSCAL4::Psi4r', ('', ['psi4_real'], r'$\Re \Psi_4$'))
     )
 
     known_particle_fields = ()

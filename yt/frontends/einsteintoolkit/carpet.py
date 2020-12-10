@@ -130,6 +130,9 @@ class GridPatch:
                     np.any(other.iorigin > self.upper_index) or \
                     np.any(other.upper_index < self.iorigin) or \
                     np.any(other.upper_index > self.upper_index))
+    
+    def contains_point(self, point):
+        return not (np.any(point > self.right_edge) or np.any(point < self.left_edge))
 
     # Determines if there is a non-zero intersection with another patch
     def intersects(self, other):
